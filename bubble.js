@@ -177,6 +177,11 @@ BB.Mixin(BB.Object, BB.Mixins.Eventable);
 BB.Model = BB.Object.Extend({
   init: function BBModel(object) {
     this._call_super_(this, 'constructor');
+    
+    if (!object) return;
+    
+    this._properties = object;
+    this.constructor._items.push(this);
   },
   
   statics: {
@@ -184,13 +189,32 @@ BB.Model = BB.Object.Extend({
     All: function() {
       return this._items;
     },
-    Find: function(query) {
+    Find: function(criteria) {
+      if (typeof criteria === 'function') {
+        return _.find(this._items, iterator);
+      }
       
+      if (typeof criteria === 'object') {
+        return _.findWhere(this._items, criteria);
+      }
+      
+      return _.findWhere(this._items, { id: criteria });
+    },
+    Where: function(criteria) {
+      if (typeof criteria === 'function') {
+        return _.filter(this._items, criteria);
+      }
+      
+      if (typeof criteria === 'object') {
+        return _.where(this._items, criteria);
+      }
+      
+      console.error('Invalid criteria; Must be iterator or object', criteria);
     }
   },
   
   members: {
-    test: function(a) { alert('BB.Model: ' + a); }
+    
   }
 });
 
