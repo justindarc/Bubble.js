@@ -61,6 +61,22 @@ BB.Mixins.Extendable = {
       
       return sub;
     }
+  },
+  
+  members: {
+    _call_super_: function(scope, method, _arguments_) {
+      if (!scope._super_ || scope._super_.hasOwnProperty('_call_')) return;
+      
+      var fn = scope._super_[method];
+      var args = Array.prototype.slice.call(arguments, 2);
+      
+      scope._super_._call_ = true;
+      
+      if (fn) fn.apply(this, args);
+      
+      this._call_super_.apply(this, arguments);
+      delete scope._super_._call_;
+    }
   }
 };
 
@@ -160,7 +176,7 @@ BB.Mixin(BB.Object, BB.Mixins.Eventable);
  */
 BB.Model = BB.Object.Extend({
   init: function BBModel(object) {
-    
+    this._call_super_(this, 'constructor');
   },
   
   statics: {
@@ -183,7 +199,7 @@ BB.Model = BB.Object.Extend({
  */
 BB.Controller = BB.Object.Extend({
   init: function BBController() {
-    
+    this._call_super_(this, 'constructor');
   },
   
   statics: {
@@ -200,6 +216,8 @@ BB.Controller = BB.Object.Extend({
  */
 BB.View = BB.Object.Extend({
   init: function BBView(element) {
+    this._call_super_(this, 'constructor');
+    
     this.$element = $(this.element = $(element)[0]);
   },
   
@@ -217,7 +235,9 @@ BB.View = BB.Object.Extend({
  * BB.App
  */
 BB.App = BB.Object.Extend({
-  init: function BBApp(element) {    
+  init: function BBApp(element) {
+    this._call_super_(this, 'constructor');
+    
     if (!element) return;
     
     this.$element = $(this.element = $(element)[0]);
