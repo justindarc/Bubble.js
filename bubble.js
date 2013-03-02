@@ -32,8 +32,8 @@ BB.Mixin = function BBMixin(klass, mixin) {
   var proto = klass.prototype;
   if (!proto) return console.error('Invalid class', klass);
   
-  if (mixin.statics) _.extend(klass, mixin.statics);
-  if (mixin.members) _.extend(proto, mixin.members);
+  _.extend(klass, mixin.statics);
+  _.extend(proto, mixin.members);
 };
 
 BB.Mixins = BB.Mixins || {};
@@ -44,9 +44,15 @@ BB.Mixins = BB.Mixins || {};
 BB.Mixins.Extendable = {
   statics: {
     Extend: function(subclass) {
-      var sub = subclass.init || (function() {});
+      subclass = subclass || {};
+      
+      var sub = subclass.init || (function() {
+        this._super_.constructor();
+      });
+      
       sub.prototype = new this();
       sub.prototype.constructor = sub;
+      
       sub.prototype._super_ = this.prototype;
       
       _.extend(sub, _.clone(this, true), _.clone(subclass.statics, true));
@@ -167,37 +173,80 @@ BB.Model = BB.Object.Extend({
   },
   
   members: {
-    get: function(property) {
-      
-    },
-    
-    set: function(property, value) {
-      
-    }
+    test: function(a) { alert('BB.Model: ' + a); }
   }
 });
 
 /**
  * BB.Controller
  */
-BB.Controller = function BBController() {
+BB.Controller = BB.Object.Extend({
+  init: function BBController() {
+    this._super_.constructor();
+  },
   
-};
-
-BB.Controller.prototype = {
-  constructor: BB.Controller
-};
+  statics: {
+    
+  },
+  
+  members: {
+    
+  }
+});
 
 /**
  * BB.View
  */
-BB.View = function BBView(element) {
+BB.View = BB.Object.Extend({
+  init: function BBView(element) {
+    this._super_.constructor();
+    
+    this.$element = $(this.element = $(element)[0]);
+  },
   
-};
+  statics: {
+    
+  },
+  
+  members: {
+    element: null,
+    $element: null
+  }
+});
 
-BB.View.prototype = {
-  constructor: BB.View,
+/**
+ * BB.App
+ */
+BB.App = BB.Object.Extend({
+  init: function BBApp(element) {
+    this._super_.constructor();
+    
+    if (!element) return;
+    
+    this.$element = $(this.element = $(element)[0]);
+    this.element.app = this;
+  },
   
-  element: null,
-  $element: null
-};
+  statics: {
+    
+  },
+  
+  members: {
+    element: null,
+    $element: null
+  }
+});
+
+$(function() {
+  
+  // Auto-init all BB.App elements
+  var $apps = $('[data-bb-app]');
+  $apps.each(function(index, element) {
+    var App = window[$(element).attr('data-bb-app')];
+    if (App) {
+      window.app = new App(element);
+    }
+  });
+  
+  window.$app = $('div')[0].app;
+});
