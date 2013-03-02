@@ -53,6 +53,7 @@ BB.Mixins.Extendable = {
       sub.prototype = new this();
       sub.prototype.constructor = sub;
       
+      sub.prototype._class_ = subclass;
       sub.prototype._super_ = this.prototype;
       
       _.extend(sub, _.clone(this, true), _.clone(subclass.statics, true));
@@ -159,7 +160,7 @@ BB.Mixin(BB.Object, BB.Mixins.Eventable);
  */
 BB.Model = BB.Object.Extend({
   init: function BBModel(object) {
-    this._super_.constructor();
+    
   },
   
   statics: {
@@ -182,7 +183,7 @@ BB.Model = BB.Object.Extend({
  */
 BB.Controller = BB.Object.Extend({
   init: function BBController() {
-    this._super_.constructor();
+    
   },
   
   statics: {
@@ -199,8 +200,6 @@ BB.Controller = BB.Object.Extend({
  */
 BB.View = BB.Object.Extend({
   init: function BBView(element) {
-    this._super_.constructor();
-    
     this.$element = $(this.element = $(element)[0]);
   },
   
@@ -218,9 +217,7 @@ BB.View = BB.Object.Extend({
  * BB.App
  */
 BB.App = BB.Object.Extend({
-  init: function BBApp(element) {
-    this._super_.constructor();
-    
+  init: function BBApp(element) {    
     if (!element) return;
     
     this.$element = $(this.element = $(element)[0]);
@@ -243,10 +240,6 @@ $(function() {
   var $apps = $('[data-bb-app]');
   $apps.each(function(index, element) {
     var App = window[$(element).attr('data-bb-app')];
-    if (App) {
-      window.app = new App(element);
-    }
+    if (App) new App(element);
   });
-  
-  window.$app = $('div')[0].app;
 });
