@@ -1,41 +1,13 @@
-var JST = {
-  TodoListItemTemplate: _.template('<label><input type="checkbox"<%= completed ? " checked" : "" %>> <%= title %></label>')
-};
+/**
+ * Models
+ */
+var Todo = BB.Model.Extend({ init: 'Todo' });
 
-var TodoFormView = BB.View.Extend({
-  init: function TodoFormView(elementOrData, data) {
-    this._call_super_init_(this, arguments);
-  }
-});
-
-var TodoFormController = BB.Controller.Extend({
-  init: function TodoFormController(app) {
-    this._call_super_init_(this, arguments);
-    
-    this.view = new TodoFormView(app.$element.find('.todo-form-view')[0]);
-    this.view.$on('submit', this.$submit);
-  },
-  
-  members: {
-    $submit: function(evt) {
-      var $element = $(evt.target);
-      var todo = $element.serializeObject();
-      todo.completed = false;
-      todo = new Todo(todo);
-      
-      $element[0].reset();
-      
-      evt.preventDefault();
-    }
-  }
-});
-
+/**
+ * Views
+ */
 var TodoListView = BB.View.Extend({
-  init: function TodoListView(elementOrData, data) {
-    this._call_super_init_(this, arguments);
-    
-    this.render();
-  },
+  init: 'TodoListView',
   
   members: {
     render: function() {
@@ -49,40 +21,68 @@ var TodoListView = BB.View.Extend({
 });
 
 var TodoListItemView = BB.View.Extend({
-  init: function TodoListItemView(elementOrData, data) {
+  init: 'TodoListItemView'
+}).Wrapper('<li/>').Template(_.template('<label><input type="checkbox"<%= completed ? " checked" : "" %>> <%= title %></label>'));
+
+/**
+ * Controllers
+ */
+var TodoFormController = BB.Controller.Extend({
+  init: function TodoFormController(app) {
     this._call_super_init_(this, arguments);
+    
+    this.setView(new BB.View(app.$element.find('.todo-form-view')));
   }
-}).Wrapper('<li/>').Template(JST.TodoListItemTemplate);
+}).ViewEvents({
+  'submit': function(evt) {
+    var $input = this.$element.find('.todo-title-input');
+    var todos = this.getApp().todos;
+    todos.create({ title: $input.val(), completed: false });
+    
+    $input.val('');
+    
+    evt.preventDefault();
+  }
+});
 
 var TodoListController = BB.Controller.Extend({
   init: function TodoListController(app) {
     this._call_super_init_(this, arguments);
     
-    this.todos = Todo.All();
-    Todo.on('create', _.bind(this.create, this));
+    var todos = app.todos;
+    todos.on('add',    _.bind(this.add,    this));
+    todos.on('change', _.bind(this.change, this));
     
-    this.view = new TodoListView(app.$element.find('.todo-list-view')[0], this.todos);
-    this.view.$on('change', 'input[type="checkbox"]', this.$change);
+    this.setView(new TodoListView(app.$element.find('.todo-list-view'), todos.all()));
   },
   
   members: {    
-    create: function(evt, data) {
-      this.view.render();
+    add: function(evt) {
+      var todo = evt.data;
+      this.getView().append(new TodoListItemView(todo));
     },
     
-    $change: function(evt) {
-      var $element = $(evt.target);
-      var view = this.getSubviewForElement($element);
-      var todo = view.getData();
-      
-      todo.set('completed', $element.is(':checked'));
+    change: function(evt) {
+      var todo = evt.data;
+      this.getView().getSubviewForData(todo).render();
     }
+  }
+}).ViewEvents({
+  'change input[type="checkbox"]': function(evt) {
+    var $input = $(evt.target);
+    var todo = this.getSubviewForElement($input).getData();
+    todo.set('completed', $input.is(':checked'));
   }
 });
 
+/**
+ * App
+ */
 var TodosApp = BB.App.Extend({
-  init: function TodosApp(element) {
+  init: function TodosApp() {
     this._call_super_init_(this, arguments);
+    
+    this.todos = new BB.Collection(Todo);
   },
   
   members: {
@@ -92,17 +92,12 @@ var TodosApp = BB.App.Extend({
   }
 });
 
-var Todo = BB.Model.Extend({
-  init: function Todo(object) {
-    this._call_super_init_(this, arguments);
-  }
-});
-
-$(function() {
-  new Todo({ id: 1, title: 'Task 1', completed: false });
-  new Todo({ id: 2, title: 'Task 2', completed: true });
-  new Todo({ id: 3, title: 'Task 3', completed: false });
-  
+$(function() {  
   var app = window.app = $('#app')[0].app;
+  
+  app.todos.create({ title: 'Task 1', completed: false });
+  app.todos.create({ title: 'Task 2', completed: true  });
+  app.todos.create({ title: 'Task 3', completed: false });
+  
   app.router.setCurrent('/');
 });

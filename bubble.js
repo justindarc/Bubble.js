@@ -50,6 +50,13 @@
 
 window.BB = window.BB || {};
 
+BB._NO_OP_ = (function() {
+  var _NO_OP_ = function _NO_OP_() {};
+  _NO_OP_.prototype = { constructor: _NO_OP_, '': '_NO_OP_' };
+  
+  return new _NO_OP_();
+})();
+
 BB.Mixin = function BBMixin(klass, mixin, withStaticMembers) {
   if (withStaticMembers) {
     _.extend(klass, mixin.statics);
@@ -72,22 +79,37 @@ BB.Mixins = BB.Mixins || {};
 BB.Mixins.Extendable = {
   statics: {
     Extend: function(subclass) {
-      subclass = subclass || {};
+      if (!subclass || typeof subclass !== 'object') {
+        return console.error('Invalid subclass definition', subclass);
+      }
       
-      var sub = subclass.init || (function() {
-        this._super_.constructor();
-      });
+      var init = subclass.init;
+      var type = typeof init;
       
-      sub.prototype = new this();
-      sub.prototype.constructor = sub;
+      if (!init || (type !== 'function' && type !== 'string')) {
+        return console.error('Invalid subclass constructor', init);
+      }
       
-      sub.prototype._class_ = subclass;
-      sub.prototype._super_ = this.prototype;
+      if (type === 'string') {
+        init = (function(name) {
+          var fn = new Function('return function ' + name + '() {\n' +
+            '  this._call_super_init_(this, arguments);\n' +
+          '}');
+          
+          return fn();
+        })(init);
+      }
       
-      _.extend(sub, _.clone(this, true), _.clone(subclass.statics, true));
-      _.extend(sub.prototype, subclass.members);
+      init.prototype = new this(BB._NO_OP_);
+      init.prototype.constructor = init;
       
-      return sub;
+      init.prototype._class_ = subclass;
+      init.prototype._super_ = this.prototype;
+      
+      _.extend(init, _.clone(this, true), _.clone(subclass.statics, true));
+      _.extend(init.prototype, subclass.members);
+      
+      return init;
     }
   },
   
@@ -118,11 +140,12 @@ BB.Mixins.Eventable = {
   members: {
     _events: null,
     
-    on: function(event, callback) {
+    on: function(event, callback, scope) {
       var events = this._events = this._events || {};
       var callbacks = events[event] = events[event] || [];
       
       if (!_.contains(callbacks, callback)) callbacks.push(callback);
+      if (scope) callback._scope_ = scope;
       
       return this;
     },
@@ -146,23 +169,25 @@ BB.Mixins.Eventable = {
     
     trigger: function(event, _arguments_) {
       var events = this._events = this._events || {};
-      var callbacks = events[event] || [];
+      var name = event.event;
+      if (!name) return console.error('Invalid event', event);
+      
+      var callbacks = events[name] || [];
       var args = [event].concat(Array.prototype.slice.call(arguments, 1));
-      var self = this;
       
       _.each(callbacks, function(callback, index) {
         if (typeof callback === 'function') {
-          callback.apply(self, args);
+          callback.apply((callback._scope_) ? callback._scope_ : this, args);
         }
         
         else {
-          callback = self[callback];
+          callback = this[callback];
           
           if (typeof callback === 'function') {
-            callback.apply(self, args);
+            callback.apply((callback._scope_) ? callback._scope_ : this, args);
           }
         }
-      });
+      }, this);
     }
   }
 };
@@ -171,6 +196,8 @@ BB.Mixins.Eventable = {
  * BB.Object
  */
 BB.Object = function BBObject() {
+  if (arguments[0] === BB._NO_OP_) return this;
+  
   this._properties = {};
 };
 
@@ -187,8 +214,9 @@ BB.Object.prototype = {
     var properties = this._properties;
     var previousValue = properties[property];
     properties[property] = value;
-    this.trigger('change', {
-      object: this,
+    this.trigger({
+      event: 'change',
+      data: this,
       property: property,
       previousValue: previousValue,
       value: value
@@ -208,24 +236,42 @@ BB.Mixin(BB.Object, BB.Mixins.Eventable);
 BB.Model = BB.Object.Extend({
   init: function BBModel(object) {
     this._call_super_init_(this, arguments);
-    
-    if (!object) return;
+    if (arguments[0] === BB._NO_OP_) return this;
     
     this._properties = object;
-    this.constructor._items.push(this);
+  }
+});
+
+/**
+ * BB.Collection
+ */
+BB.Collection = BB.Object.Extend({
+  init: function BBCollection(type, array) {
+    this._call_super_init_(this, arguments);
+    if (arguments[0] === BB._NO_OP_) return this;
     
-    this.on('change', this._triggerChange);
+    if (typeof type !== 'function') {
+      return console.error('Invalid model type', type);
+    }
     
-    this.constructor.trigger('create', { object: this });
+    this._type = type;
+    this._items = [];
   },
   
-  statics: {
-    _items: [],
-    
-    All: function() {
-      return this._items;
+  members: {
+    _triggerChange: function(_arguments_) {
+      this.trigger.apply(this, arguments);
     },
-    Find: function(criteria) {
+    
+    _type: null,
+    
+    getType: function() { return this._type; },
+    
+    _items: null,
+    
+    all: function() { return this._items; },
+    
+    find: function(criteria) {
       if (typeof criteria === 'function') {
         return _.find(this._items, iterator);
       }
@@ -236,7 +282,8 @@ BB.Model = BB.Object.Extend({
       
       return _.findWhere(this._items, { id: criteria });
     },
-    Where: function(criteria) {
+    
+    where: function(criteria) {
       if (typeof criteria === 'function') {
         return _.filter(this._items, criteria);
       }
@@ -246,18 +293,33 @@ BB.Model = BB.Object.Extend({
       }
       
       console.error('Invalid criteria; Must be iterator or object', criteria);
-    }
-  },
-  
-  members: {
-    _triggerChange: function(_arguments_) {
-      this.constructor.trigger.apply(this.constructor, arguments);
+    },
+    
+    add: function(model) {
+      this._items.push(model);
+      this.trigger({ event: 'add', data: model });
+      
+      // var self = this;
+      // model.on('change', function(evt) {
+      //   self.trigger.apply(self, arguments);
+      // });
+      
+      model.on('change', this._triggerChange, this);
+    },
+    
+    remove: function(model) {
+      
+    },
+    
+    removeAll: function() {
+      
+    },
+    
+    create: function(object) {
+      this.add(new this._type(object));
     }
   }
 });
-
-// Add Eventable mixin to BB.Model statically
-BB.Mixin(BB.Model, BB.Mixins.Eventable, true);
 
 /**
  * BB.Controller
@@ -265,15 +327,65 @@ BB.Mixin(BB.Model, BB.Mixins.Eventable, true);
 BB.Controller = BB.Object.Extend({
   init: function BBController(app) {
     this._call_super_init_(this, arguments);
+    if (arguments[0] === BB._NO_OP_) return this;
     
     this._app = app;
+    
+    var viewEvents = this.constructor._viewEvents;
+    
+    _.defer(function(self) {
+      _.each(viewEvents, function(value, key) {
+        var handler = value;
+        var type = typeof handler;
+        if (!handler || (type !== 'function' && type !== 'string')) {
+          return console.error('Invalid event handler', handler);
+        }
+        
+        if (type === 'string') {
+          handler = self[handler];
+          type = typeof handler;
+          
+          if (!handler || type !== 'function') {
+            return console.error('Invalid event handler', value);
+          }
+        }
+        
+        var parts = key.split(' ');
+        var event = _.first(parts);
+        var selector = $.trim(_.rest(parts).join(' '));
+        
+        if (selector) {
+          self._view.$on(event, selector, handler);
+        }
+        
+        else {
+          self._view.$on(event, handler);
+        }
+      });
+    }, this);
+  },
+  
+  statics: {
+    _viewEvents: null,
+    
+    ViewEvents: function(viewEvents) {
+      this._viewEvents = viewEvents;
+      return this;
+    }
   },
   
   members: {
     _app: null,
     
-    getApp: function() {
-      return this._app;
+    getApp: function() { return this._app; },
+    
+    _view: null,
+    
+    getView: function() { return this._view; },
+    
+    setView: function(view) {
+      this._view = view;
+      view._app = this._app;
     }
   }
 });
@@ -284,19 +396,22 @@ BB.Controller = BB.Object.Extend({
 BB.View = BB.Object.Extend({
   init: function BBView(elementOrData, data) {
     this._call_super_init_(this, arguments);
+    if (arguments[0] === BB._NO_OP_) return this;
+    
+    this._subviews = [];
     
     var wrapper = this.getWrapper();
     if (!wrapper || _.isElement(elementOrData)) {
       this.$element = $(this.element = $(elementOrData)[0]).attr('data-bb-view', '');
-      this.setData(data || null);
+      this._data = data || null;
     }
     
     else if (wrapper) {
       this.$element = $(this.element = $(wrapper)[0]).attr('data-bb-view', '');
-      this.setData(elementOrData || null);
+      this._data = elementOrData || null;
     }
-    
-    this._subviews = [];
+
+    _.defer(function(self) { self.render(); }, this);
   },
   
   statics: {
@@ -332,11 +447,13 @@ BB.View = BB.Object.Extend({
       return this.constructor._template;
     },
     
+    _app: null,
+    
+    getApp: function() { return this._app; },
+    
     _data: null,
     
-    getData: function() {
-      return this._data;
-    },
+    getData: function() { return this._data; },
     
     setData: function(data) {
       this._data = data;
@@ -345,15 +462,11 @@ BB.View = BB.Object.Extend({
     
     _parent: null,
     
-    getParent: function() {
-      return this._parent;
-    },
+    getParent: function() { return this._parent; },
     
     _subviews: null,
     
-    getSubviews: function() {
-      return this._subviews;
-    },
+    getSubviews: function() { return this._subviews; },
     
     getSubviewForElement: function(element) {
       if (!element || !_.isObject(element)) {
@@ -376,6 +489,7 @@ BB.View = BB.Object.Extend({
       this._subviews.push(subview);
       this.$element.append(subview.$element);
       
+      subview._app = this._app;
       subview._parent = this;
     },
     
@@ -386,6 +500,7 @@ BB.View = BB.Object.Extend({
       if (index !== -1) {
         subviews.splice(index, 1);
         subview.$element.remove();
+        subview._app = subview._parent = null;
       }
     },
     
@@ -393,6 +508,7 @@ BB.View = BB.Object.Extend({
       var subviews = this._subviews;
       for (var i = 0, length = subviews.length; i < length; i++) {
         subview.$element.remove();
+        subview._app = subview._parent = null;
       }
       
       this._subviews.length = 0;
@@ -450,6 +566,9 @@ BB.View = BB.Object.Extend({
  */
 BB.Router = BB.Object.Extend({
   init: function BBRouter(routes, app) {
+    this._call_super_init_(this, arguments);
+    if (arguments[0] === BB._NO_OP_) return this;
+    
     this._routes = routes;
     this._app = app;
   },
@@ -492,6 +611,7 @@ BB.Router = BB.Object.Extend({
 BB.App = BB.Object.Extend({
   init: function BBApp(element) {
     this._call_super_init_(this, arguments);
+    if (arguments[0] === BB._NO_OP_) return this;
     
     if (!element) return;
     
