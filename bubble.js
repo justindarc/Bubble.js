@@ -64,11 +64,10 @@ BB.Mixins.Extendable = {
   },
   
   members: {
-    _call_super_: function(scope, method, _arguments_) {
+    _call_super_: function(scope, method, args) {
       if (!scope._super_ || scope._super_.hasOwnProperty('_call_')) return;
       
       var fn = scope._super_[method];
-      var args = Array.prototype.slice.call(arguments, 2);
       
       scope._super_._call_ = true;
       
@@ -76,6 +75,10 @@ BB.Mixins.Extendable = {
       
       this._call_super_.apply(this, arguments);
       delete scope._super_._call_;
+    },
+    
+    _call_super_init_: function(scope, args) {
+      this._call_super_(scope, 'constructor', args);
     }
   }
 };
@@ -176,7 +179,7 @@ BB.Mixin(BB.Object, BB.Mixins.Eventable);
  */
 BB.Model = BB.Object.Extend({
   init: function BBModel(object) {
-    this._call_super_(this, 'constructor');
+    this._call_super_init_(this, arguments);
     
     if (!object) return;
     
@@ -186,6 +189,7 @@ BB.Model = BB.Object.Extend({
   
   statics: {
     _items: [],
+    
     All: function() {
       return this._items;
     },
@@ -222,16 +226,18 @@ BB.Model = BB.Object.Extend({
  * BB.Controller
  */
 BB.Controller = BB.Object.Extend({
-  init: function BBController() {
-    this._call_super_(this, 'constructor');
-  },
-  
-  statics: {
+  init: function BBController(app) {
+    this._call_super_init_(this, arguments);
     
+    this._app = app;
   },
   
   members: {
+    _app: null,
     
+    getApp: function() {
+      return this._app;
+    }
   }
 });
 
@@ -239,19 +245,139 @@ BB.Controller = BB.Object.Extend({
  * BB.View
  */
 BB.View = BB.Object.Extend({
-  init: function BBView(element) {
-    this._call_super_(this, 'constructor');
+  init: function BBView(elementOrData, data) {
+    this._call_super_init_(this, arguments);
     
-    this.$element = $(this.element = $(element)[0]);
+    var wrapper = this.getWrapper();
+    if (!wrapper || _.isElement(elementOrData)) {
+      this.$element = $(this.element = $(elementOrData)[0]);
+      this.setData(data || null);
+    }
+    
+    else if (wrapper) {
+      this.$element = $(this.element = $(wrapper)[0]);
+      this.setData(elementOrData || null);
+    }
+    
+    this._subviews = [];
   },
   
   statics: {
+    _wrapper: null,
     
+    Wrapper: function(wrapper) {
+      this._wrapper = wrapper;
+      return this;
+    },
+    
+    _template: null,
+    
+    Template: function(template) {
+      if (template && !_.isFunction(template)) {
+        console.error('Invalid template', template);
+        return this;
+      }
+      
+      this._template = template;
+      return this;
+    }
   },
   
   members: {
     element: null,
-    $element: null
+    $element: null,
+    
+    getWrapper: function() {
+      return this.constructor._wrapper;
+    },
+    
+    getTemplate: function() {
+      return this.constructor._template;
+    },
+    
+    _data: null,
+    
+    getData: function() {
+      return this._data;
+    },
+    
+    setData: function(data) {
+      this._data = data;
+      this.render();
+    },
+    
+    _subviews: null,
+    
+    getSubviews: function() {
+      return this._subviews;
+    },
+    
+    append: function(subview) {
+      this._subviews.push(subview);
+      this.$element.append(subview.$element);
+    },
+    
+    remove: function(subview) {
+      var subviews = this._subviews;
+      var index = _.indexOf(subviews, subview);
+      
+      if (index !== -1) {
+        subviews.splice(index, 1);
+        subview.$element.remove();
+      }
+    },
+    
+    removeAll: function() {
+      var subviews = this._subviews;
+      for (var i = 0, length = subviews.length; i < length; i++) {
+        subview.$element.remove();
+      }
+      
+      this._subviews.length = 0;
+    },
+    
+    render: function() {
+      var template = this.getTemplate();
+      if (!template) return;
+      
+      this.$element.html(template(this._data));
+    }
+  }
+});
+
+/**
+ * BB.Router
+ */
+BB.Router = BB.Object.Extend({
+  init: function BBRouter(routes, app) {
+    this._routes = routes;
+    this._app = app;
+  },
+   
+  members: {    
+    _routes: null,
+    
+    _app: null,
+    
+    getApp: function() {
+      return this._app;
+    },
+    
+    _current: null,
+    
+    getCurrent: function() {
+      return this._current;
+    },
+    
+    setCurrent: function(path) {
+      var controller = this._routes[path];
+      if (controller) controller = new controller(this._app);
+      
+      this._current = {
+        path: path,
+        controller: controller
+      };
+    }
   }
 });
 
@@ -260,21 +386,21 @@ BB.View = BB.Object.Extend({
  */
 BB.App = BB.Object.Extend({
   init: function BBApp(element) {
-    this._call_super_(this, 'constructor');
+    this._call_super_init_(this, arguments);
     
     if (!element) return;
     
     this.$element = $(this.element = $(element)[0]);
     this.element.app = this;
-  },
-  
-  statics: {
     
+    this.router = new BB.Router(this.router, this);
   },
   
   members: {
     element: null,
-    $element: null
+    $element: null,
+    
+    router: null
   }
 });
 
