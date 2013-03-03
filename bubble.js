@@ -26,9 +26,37 @@
   };
 })();
 
+(function($) {
+  $.fn.serializeObject = function() {
+    var result = {};
+    var extend = function (i, element) {
+      var node = result[element.name];
+      
+      if (typeof node !== 'undefined' && node !== null) {
+        if ($.isArray(node)) {
+          node.push(element.value);
+        } else {
+          result[element.name] = [node, element.value];
+        }
+      } else {
+        result[element.name] = element.value;
+      }
+    };
+    
+    $.each(this.serializeArray(), extend);
+    return result;
+  };
+})($);
+
 window.BB = window.BB || {};
 
-BB.Mixin = function BBMixin(klass, mixin) {
+BB.Mixin = function BBMixin(klass, mixin, withStaticMembers) {
+  if (withStaticMembers) {
+    _.extend(klass, mixin.statics);
+    _.extend(klass, mixin.members);
+    return;
+  }
+  
   var proto = klass.prototype;
   if (!proto) return console.error('Invalid class', klass);
   
@@ -185,6 +213,10 @@ BB.Model = BB.Object.Extend({
     
     this._properties = object;
     this.constructor._items.push(this);
+    
+    this.on('change', this._triggerChange);
+    
+    this.constructor.trigger('create', { object: this });
   },
   
   statics: {
@@ -218,9 +250,14 @@ BB.Model = BB.Object.Extend({
   },
   
   members: {
-    
+    _triggerChange: function(_arguments_) {
+      this.constructor.trigger.apply(this.constructor, arguments);
+    }
   }
 });
+
+// Add Eventable mixin to BB.Model statically
+BB.Mixin(BB.Model, BB.Mixins.Eventable, true);
 
 /**
  * BB.Controller
@@ -250,12 +287,12 @@ BB.View = BB.Object.Extend({
     
     var wrapper = this.getWrapper();
     if (!wrapper || _.isElement(elementOrData)) {
-      this.$element = $(this.element = $(elementOrData)[0]);
+      this.$element = $(this.element = $(elementOrData)[0]).attr('data-bb-view', '');
       this.setData(data || null);
     }
     
     else if (wrapper) {
-      this.$element = $(this.element = $(wrapper)[0]);
+      this.$element = $(this.element = $(wrapper)[0]).attr('data-bb-view', '');
       this.setData(elementOrData || null);
     }
     
@@ -306,15 +343,40 @@ BB.View = BB.Object.Extend({
       this.render();
     },
     
+    _parent: null,
+    
+    getParent: function() {
+      return this._parent;
+    },
+    
     _subviews: null,
     
     getSubviews: function() {
       return this._subviews;
     },
     
+    getSubviewForElement: function(element) {
+      if (!element || !_.isObject(element)) {
+        console.error('Invalid element', element);
+        return null;
+      }
+      
+      var $element = _.isElement(element) ? $(element) : element;
+      var viewElement = $element.closest('[data-bb-view]')[0];
+      if (!viewElement) return this;
+      
+      return _.findWhere(this._subviews, { element: viewElement }) || this;
+    },
+    
+    getSubviewForData: function(data) {
+      return _.findWhere(this._subviews, { _data: data });
+    },
+    
     append: function(subview) {
       this._subviews.push(subview);
       this.$element.append(subview.$element);
+      
+      subview._parent = this;
     },
     
     remove: function(subview) {
@@ -336,11 +398,49 @@ BB.View = BB.Object.Extend({
       this._subviews.length = 0;
     },
     
+    $on: function(_arguments_) {
+      var fn;
+      var args = _.reject(arguments, function(argument) {
+        if (typeof argument === 'function') {
+          fn = argument;
+          return true;
+        }
+        
+        return false;
+      });
+      
+      if (!fn) {
+        return console.error('No valid event handler specified', arguments);
+      }
+      
+      var self = this;
+      var handler = function() {
+        fn.apply(self, arguments);
+      };
+      
+      handler.fn = fn;
+      
+      args.push(handler);
+      
+      this.$element.on.apply(this.$element, args);
+    },
+    
+    $off: function(_arguments_) {
+      this.$element.off.apply(this.$element, arguments);
+    },
+    
+    $trigger: function(_arguments_) {
+      this.$element.trigger.apply(this.$element, arguments);
+    },
+    
     render: function() {
       var template = this.getTemplate();
       if (!template) return;
       
-      this.$element.html(template(this._data));
+      var data = this._data;
+      data = (data instanceof BB.Model) ? data._properties : data;
+      
+      this.$element.html(template(data));
     }
   }
 });
@@ -370,12 +470,17 @@ BB.Router = BB.Object.Extend({
     },
     
     setCurrent: function(path) {
-      var controller = this._routes[path];
-      if (controller) controller = new controller(this._app);
+      var app = this._app;
+      var controllers = this._routes[path];
+      if (!_.isArray(controllers)) controllers = [controllers];
+      
+      _.each(controllers, function(controller) {
+        controller = new controller(app);
+      });
       
       this._current = {
         path: path,
-        controller: controller
+        controllers: controllers
       };
     }
   }
