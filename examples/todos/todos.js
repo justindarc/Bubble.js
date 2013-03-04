@@ -6,23 +6,11 @@ var Todo = BB.Model.Extend({ init: 'Todo' });
 /**
  * Views
  */
-var TodoListView = BB.View.Extend({
-  init: 'TodoListView',
-  
-  members: {
-    render: function() {
-      this.$element.empty();
-      
-      _.each(this._data, function(todo) {
-        this.append(new TodoListItemView(todo));
-      }, this);
-    }
-  }
-});
-
 var TodoListItemView = BB.View.Extend({
   init: 'TodoListItemView'
 }).Wrapper('<li/>').Template(_.template('<label><input type="checkbox"<%= completed ? " checked" : "" %>> <%= title %></label>'));
+ 
+var TodoListView = BB.CollectionView.Extend({ init: 'TodoListView' }).ItemView(TodoListItemView);
 
 /**
  * Controllers

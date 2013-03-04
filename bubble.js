@@ -562,6 +562,57 @@ BB.View = BB.Object.Extend({
 });
 
 /**
+ * BB.CollectionView
+ */
+BB.CollectionView = BB.View.Extend({
+  init: function BBCollectionView(elementOrData, data) {
+    this._call_super_init_(this, arguments);
+    if (arguments[0] === BB._NO_OP_) return this;
+    
+    this._subviews = [];
+    
+    var wrapper = this.getWrapper();
+    if (!wrapper || _.isElement(elementOrData)) {
+      this.$element = $(this.element = $(elementOrData)[0]).attr('data-bb-view', '');
+      this._data = data || null;
+    }
+    
+    else if (wrapper) {
+      this.$element = $(this.element = $(wrapper)[0]).attr('data-bb-view', '');
+      this._data = elementOrData || null;
+    }
+
+    _.defer(function(self) { self.render(); }, this);
+  },
+  
+  statics: {
+    _itemView: null,
+    
+    ItemView: function(itemView) {
+      this._itemView = itemView;
+      return this;
+    }
+  },
+  
+  members: {
+    getItemView: function() {
+      return this.constructor._itemView;
+    },
+    
+    render: function() {
+      var itemView = this.getItemView();
+      if (!itemView) return;
+      
+      this.$element.empty();
+      
+      _.each(this._data, function(model) {
+        this.append(new itemView(model));
+      }, this);
+    }
+  }
+});
+
+/**
  * BB.Router
  */
 BB.Router = BB.Object.Extend({
